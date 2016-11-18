@@ -1,0 +1,88 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Threading.Tasks;
+using System.Xml;
+using Woffler.Primitives;
+
+namespace Woffler.PollingSources
+{
+	public class LastFmSource : IPollingSource
+	{
+		public LastFmSource( string apiKey, int trackLimit )
+		{
+			_apiKey = apiKey;
+			_trackLimit = trackLimit;
+		}
+		public ICollection<TrackManifest> Poll( string user, DateTimeOffset fromTime )
+		{
+			var parameters = "?method=user.getrecenttracks" +
+							  "&user=" + user +
+							  "&api_key=" + _apiKey +
+							  "&from=" + ConvertToUnixTime( fromTime ) +
+							  "&limit=" + _trackLimit;
+			var xmlDoc = new XmlDocument();
+
+			using ( var httpClient = new HttpClient() )
+			{
+				httpClient.BaseAddress = new Uri( LastFmApiUrl );
+				httpClient.DefaultRequestHeaders.Accept.Add( new MediaTypeWithQualityHeaderValue( "application/json" ) );
+
+				var response = httpClient.GetAsync( parameters ).Result;
+
+				if ( response.IsSuccessStatusCode )
+				{
+					var responseStr = response.Content.ReadAsStringAsync().Result;
+					xmlDoc.LoadXml( responseStr );
+				}
+				else
+				{
+					throw new Exception( $"Error getting scrobbled tracks from Last.FM: {response.StatusCode}" );
+				}
+			}
+
+			return ParseLastFmXmlResponse( xmlDoc );
+		}
+
+		private long ConvertToUnixTime( DateTimeOffset dateTimeOffset )
+		{
+			return dateTimeOffset.ToUnixTimeSeconds();
+		}
+
+		private ICollection<TrackManifest> ParseLastFmXmlResponse( XmlDocument xmlDoc )
+		{
+			var trackManifests = new List<TrackManifest>();
+
+			foreach ( XmlNode trackNode in xmlDoc.SelectNodes( "/lfm/recenttracks/track" ) )
+			{
+				var utcTimeAttribute = trackNode.SelectSingleNode( "date/@uts" )?.Value;
+				DateTime? listenTime = null;
+				if ( utcTimeAttribute != null )
+				{
+					var utcTimeInt = long.Parse( utcTimeAttribute );
+					listenTime = DateTimeOffset.FromUnixTimeSeconds( utcTimeInt ).LocalDateTime;
+				}
+				trackManifests.Add( new TrackManifest()
+				{
+					Album = trackNode.SelectSingleNode( "album" )?.InnerText,
+					Name = trackNode.SelectSingleNode( "name" )?.InnerText,
+					Artist = trackNode.SelectSingleNode( "artist" )?.InnerText,
+					Url = trackNode.SelectSingleNode( "url" )?.InnerText,
+					AlbumArtUrl = trackNode.SelectSingleNode( "image[@size='large']" )?.InnerText,
+					ListenTime = listenTime
+				} );
+			}
+
+			return trackManifests;
+		}
+
+		private readonly string _apiKey;
+		private readonly int _trackLimit;
+
+		private const string LastFmApiUrl = "http://ws.audioscrobbler.com/2.0/";
+	}
+}
