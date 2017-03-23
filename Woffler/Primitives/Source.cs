@@ -10,6 +10,7 @@ namespace Woffler.Primitives
 	{
 		public string Name { get; set; }
 		public string ApiKey { get; set; }
+		public string ApiUrl { get; set; }
 		public int PollInterval { get; set; }
 		public int TrackLimit { get; set; }
 		public string UserName { get; set; }

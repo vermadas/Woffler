@@ -13,7 +13,7 @@ namespace Woffler.Database
 	{
 		public DatabaseHandler()
 		{
-			_connection = new SQLiteConnection("Data Source=" + _sqliteDatabaseFile + ";Version=" + SqliteDatabaseVersion + ";");
+			_connection = new SQLiteConnection("Data Source=" + _sqliteDatabaseFile + ";foreign keys=true;Version=" + SqliteDatabaseVersion + ";");
 			Initialize();
 		}
 		public void Dispose()
@@ -146,12 +146,14 @@ namespace Woffler.Database
 	uhs.Poll_Interval,
 	uhs.Track_Limit,
 	s.Name,
-	s.API_Key,
-	s.Default_Poll_Interval,
-	s.Default_Track_Limit
+	sc.API_Key,
+	sc.API_URL,
+	sc.Default_Poll_Interval,
+	sc.Default_Track_Limit
 FROM Users u
 JOIN User_Has_Source uhs ON u.ID = uhs.User_ID
-JOIN Sources s ON uhs.Source_ID = s.ID
+JOIN Source_configs sc ON uhs.Source_Config_ID = sc.ID
+JOIN Sources s ON sc.Source_ID = s.ID
 WHERE u.Name = '{user.Name}' AND uhs.Active = 1";
 
 			using (var command = new SQLiteCommand(sourcesSql, _connection))
@@ -171,6 +173,7 @@ WHERE u.Name = '{user.Name}' AND uhs.Active = 1";
 					{
 						Name = (string) reader["Name"],
 						ApiKey = reader["API_Key"].GetType() != typeof( DBNull ) ? (string) reader["API_Key"] : null,
+						ApiUrl = reader[ "API_URL" ].GetType() != typeof( DBNull ) ? (string)reader[ "API_URL" ] : null,
 						LastPoll = lastPoll,
 						PollInterval = Convert.ToInt32(interval),
 						TrackLimit = Convert.ToInt32(trackLimit),
@@ -190,12 +193,14 @@ WHERE u.Name = '{user.Name}' AND uhs.Active = 1";
 	uhd.Track_URL_Provider,
 	uhd.Image_URL_Provider,
 	d.Name,
-	d.API_Key,
-	d.Default_Formatter,
-	d.Default_Track_Limit
+	dc.API_Key,
+	dc.API_URL,
+	dc.Default_Formatter,
+	dc.Default_Track_Limit
 FROM Users u
 JOIN User_Has_Share_Destination uhd ON u.ID = uhd.User_ID
-JOIN Share_Destinations d ON uhd.Share_Destination_ID = d.ID
+JOIN Share_Destination_Configs dc ON uhd.Share_Destination_Config_ID = dc.ID
+JOIN Share_Destinations d ON dc.Share_Destination_ID = d.ID
 WHERE u.Name = '{user.Name}' AND uhd.Active = 1";
 
 			using ( var command = new SQLiteCommand( destinationsSql, _connection ) )
@@ -214,6 +219,7 @@ WHERE u.Name = '{user.Name}' AND uhd.Active = 1";
 					{
 						Name = (string) reader[ "Name" ],
 						ApiKey = reader[ "API_Key" ].GetType() != typeof( DBNull ) ? (string)reader[ "API_Key" ] : null,
+						ApiUrl = reader[ "API_URL" ].GetType() != typeof( DBNull ) ? (string)reader[ "API_URL" ] : null,
 						Formatter = formatter,
 						TrackLimit = Convert.ToInt32(trackLimit),
 						User = reader[ "Share_UserName" ].GetType() != typeof( DBNull ) ? (string)reader[ "Share_UserName" ] : null,
@@ -224,7 +230,7 @@ WHERE u.Name = '{user.Name}' AND uhd.Active = 1";
 				}
 			}
 		}
-		private SQLiteConnection _connection;
+		private readonly SQLiteConnection _connection;
 
 		private readonly string _sqliteDatabaseFile = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData) + @"\WofflerDatabase.sqlite";
 		private const string SqliteDatabaseVersion = "3";

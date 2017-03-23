@@ -84,7 +84,7 @@
     <Compile Include="Primitives\Source.cs" />
     <Compile Include="Primitives\User.cs" />
     <Compile Include="ShareDestinations\TrackFormatter.cs" />
-    <Compile Include="ShareDestinations\SlackCeDestination.cs" />
+    <Compile Include="ShareDestinations\SlackDestination.cs" />
     <Compile Include="ShareDestinations\IShareDestination.cs" />
     <Compile Include="Primitives\TrackManifest.cs" />
     <Compile Include="Database\DatabaseHandler.cs" />

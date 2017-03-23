@@ -3,8 +3,6 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using System.Timers;
 using Woffler.PollingSources;
 using Woffler.Primitives;
@@ -14,7 +12,7 @@ namespace Woffler
 {
 	public class UserPollerSharer
 	{
-		public UserPollerSharer(User user)
+		public UserPollerSharer( User user )
 		{
 			_user = user;
 			_sourcePollers = new Dictionary<Source, Timer>();
@@ -25,26 +23,26 @@ namespace Woffler
 		public void Start()
 		{
 			EventLog.WriteEntry( Constants.EventLogSourceName, $"Polling start for user {_user.Name}", EventLogEntryType.Information );
-			foreach (var source in _user.Sources)
+			foreach ( var source in _user.Sources )
 			{
-				var poller = new System.Timers.Timer(source.PollInterval*1000);
-				poller.Elapsed += (sender, e) => PollAndShare(sender, e, source);
+				var poller = new Timer( source.PollInterval * 1000 );
+				poller.Elapsed += ( sender, e ) => PollAndShare( sender, e, source );
 				poller.Start();
-				_sourcePollers.Add(source, poller);
+				_sourcePollers.Add( source, poller );
 				EventLog.WriteEntry( Constants.EventLogSourceName, $"Poller for {source.Name} created", EventLogEntryType.Information );
 			}
 
-			foreach (var destination in _user.Destinations)
+			foreach ( var destination in _user.Destinations )
 			{
-				_destinationTrackLists.Add(destination, new ConcurrentQueue<TrackManifest>());
-				_destinationLocks.Add(destination, new object());
+				_destinationTrackLists.Add( destination, new ConcurrentQueue<TrackManifest>() );
+				_destinationLocks.Add( destination, new object() );
 			}
 		}
 
 		public void Stop()
 		{
 			EventLog.WriteEntry( Constants.EventLogSourceName, $"Polling stop for user {_user.Name}", EventLogEntryType.Information );
-			foreach (var poller in _sourcePollers.Values)
+			foreach ( var poller in _sourcePollers.Values )
 			{
 				poller.Stop();
 				poller.Dispose();
@@ -54,62 +52,62 @@ namespace Woffler
 			_destinationLocks.Clear();
 		}
 
-		private void PollAndShare(object sender, ElapsedEventArgs e, Source source)
+		private void PollAndShare( object sender, ElapsedEventArgs e, Source source )
 		{
-			var pollingSource = GetPollingSource(source);
+			var pollingSource = GetPollingSource( source );
 			try
 			{
 				EventLog.WriteEntry( Constants.EventLogSourceName, $"Poll attempt for {source.Name}", EventLogEntryType.Information );
-				var trackManifests = pollingSource.Poll(source.UserName, source.LastPoll);
-				if (trackManifests.Any())
+				var trackManifests = pollingSource.Poll( source );
+				if ( trackManifests.Any() )
 				{
 					EventLog.WriteEntry( Constants.EventLogSourceName, $"{trackManifests.ToList().Count} new tracks found", EventLogEntryType.Information );
 				}
 				source.LastPoll = DateTimeOffset.Now;
-				foreach (var destinationQueue in _destinationTrackLists.Values)
+				foreach ( var destinationQueue in _destinationTrackLists.Values )
 				{
-					foreach (var trackManifest in trackManifests)
+					foreach ( var trackManifest in trackManifests )
 					{
-						destinationQueue.Enqueue(trackManifest);
+						destinationQueue.Enqueue( trackManifest );
 					}
 				}
 			}
-			catch (Exception ex)
+			catch ( Exception ex )
 			{
 				EventLog.WriteEntry( Constants.EventLogSourceName, $"Polling error: {ex.Message}", EventLogEntryType.Error );
 			}
 
-			foreach (var destination in _user.Destinations)
+			foreach ( var destination in _user.Destinations )
 			{
-				var trackQueue = _destinationTrackLists[destination];
-				if (trackQueue.IsEmpty) continue;
+				var trackQueue = _destinationTrackLists[ destination ];
+				if ( trackQueue.IsEmpty ) continue;
 
-				lock (_destinationLocks[destination])
-					// while in this block, concurrent queue adds fine, but concurrent dequeues need to wait
+				lock ( _destinationLocks[ destination ] )
+				// while in this block, concurrent queue adds fine, but concurrent dequeues need to wait
 				{
-					var shareDestination = GetShareDestination(destination);
+					var shareDestination = GetShareDestination( destination );
 
 					ICollection<TrackManifest> tracksToShare;
-					if (trackQueue.Count > destination.TrackLimit)
+					if ( trackQueue.Count > destination.TrackLimit )
 					{
-						tracksToShare = trackQueue.ToList().GetRange(0, destination.TrackLimit);
+						tracksToShare = trackQueue.ToList().GetRange( 0, destination.TrackLimit );
 					}
 					else
 					{
-						tracksToShare = new List<TrackManifest>(trackQueue);
+						tracksToShare = new List<TrackManifest>( trackQueue );
 					}
 
 					try
 					{
 						EventLog.WriteEntry( Constants.EventLogSourceName, $"Share attempt for {source.Name}", EventLogEntryType.Information );
-						shareDestination.Share(tracksToShare, destination.User, destination.Formatter);
-						foreach (var track in tracksToShare)
+						shareDestination.Share( tracksToShare, destination );
+						foreach ( var track in tracksToShare )
 						{
 							TrackManifest trackToDiscard;
-							trackQueue.TryDequeue(out trackToDiscard);
+							trackQueue.TryDequeue( out trackToDiscard );
 						}
 					}
-					catch (Exception ex)
+					catch ( Exception ex )
 					{
 						EventLog.WriteEntry( Constants.EventLogSourceName, $"Error sharing tracks: {ex.Message}", EventLogEntryType.Error );
 					}
@@ -118,14 +116,22 @@ namespace Woffler
 
 		}
 
-		private IPollingSource GetPollingSource(Source source)
+		private IPollingSource GetPollingSource( Source source )
 		{
-			return new LastFmSource(source.ApiKey, source.TrackLimit);
+			if ( source.Name == "Last.FM" )
+			{
+				return new LastFmSource();
+			}
+			return null;
 		}
 
-		private IShareDestination GetShareDestination(Destination destination)
+		private IShareDestination GetShareDestination( Destination destination )
 		{
-			return new SlackCeDestination();
+			if ( destination.Name == "Slack" )
+			{
+				return new SlackDestination();
+			}
+			return null;
 		}
 
 		private readonly User _user;

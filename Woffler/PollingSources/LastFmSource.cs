@@ -13,23 +13,18 @@ namespace Woffler.PollingSources
 {
 	public class LastFmSource : IPollingSource
 	{
-		public LastFmSource( string apiKey, int trackLimit )
-		{
-			_apiKey = apiKey;
-			_trackLimit = trackLimit;
-		}
-		public ICollection<TrackManifest> Poll( string user, DateTimeOffset fromTime )
+		public ICollection<TrackManifest> Poll( Source source )
 		{
 			var parameters = "?method=user.getrecenttracks" +
-							  "&user=" + user +
-							  "&api_key=" + _apiKey +
-							  "&from=" + ConvertToUnixTime( fromTime ) +
-							  "&limit=" + _trackLimit;
+							  "&user=" + source.UserName +
+							  "&api_key=" + source.ApiKey +
+							  "&from=" + ConvertToUnixTime( source.LastPoll ) +
+							  "&limit=" + source.TrackLimit;
 			var xmlDoc = new XmlDocument();
 
 			using ( var httpClient = new HttpClient() )
 			{
-				httpClient.BaseAddress = new Uri( LastFmApiUrl );
+				httpClient.BaseAddress = new Uri( source.ApiUrl );
 				httpClient.DefaultRequestHeaders.Accept.Add( new MediaTypeWithQualityHeaderValue( "application/json" ) );
 
 				var response = httpClient.GetAsync( parameters ).Result;
@@ -79,10 +74,5 @@ namespace Woffler.PollingSources
 
 			return trackManifests;
 		}
-
-		private readonly string _apiKey;
-		private readonly int _trackLimit;
-
-		private const string LastFmApiUrl = "http://ws.audioscrobbler.com/2.0/";
 	}
 }
