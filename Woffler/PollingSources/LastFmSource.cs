@@ -13,18 +13,18 @@ namespace Woffler.PollingSources
 {
 	public class LastFmSource : IPollingSource
 	{
-		public ICollection<TrackManifest> Poll( Source source )
+		public ICollection<TrackManifest> Poll( UserSource userSource )
 		{
 			var parameters = "?method=user.getrecenttracks" +
-							  "&user=" + source.UserName +
-							  "&api_key=" + source.ApiKey +
-							  "&from=" + ConvertToUnixTime( source.LastPoll ) +
-							  "&limit=" + source.TrackLimit;
+							  "&user=" + userSource.SourceUserName +
+							  "&api_key=" + userSource.SourceConfig.ApiKey +
+							  "&from=" + ConvertToUnixTime(userSource.LastPoll ) +
+							  "&limit=" + ( userSource.TrackLimit ?? userSource.SourceConfig.DefaultTrackLimit );
 			var xmlDoc = new XmlDocument();
 
 			using ( var httpClient = new HttpClient() )
 			{
-				httpClient.BaseAddress = new Uri( source.ApiUrl );
+				httpClient.BaseAddress = new Uri( userSource.SourceConfig.ApiUrl );
 				httpClient.DefaultRequestHeaders.Accept.Add( new MediaTypeWithQualityHeaderValue( "application/json" ) );
 
 				var response = httpClient.GetAsync( parameters ).Result;

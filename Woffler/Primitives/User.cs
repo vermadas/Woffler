@@ -10,13 +10,14 @@ namespace Woffler.Primitives
 	{
 		public User()
 		{
-			Sources = new List<Source>();
-			Destinations = new List<Destination>();
+			UserSources = new List<UserSource>();
+			UserDestinations = new List<UserShareDestination>();
 		}
-
+		public int Id { get; set; }
 		public string Name { get; set; }
 		public string Email { get; set; }
-		public ICollection<Source> Sources { get; set; }
-		public ICollection<Destination> Destinations { get; set; }
+		public bool Active { get; set; }
+		public ICollection<UserSource> UserSources { get; set; }
+		public ICollection<UserShareDestination> UserDestinations { get; set; }
 	}
 }

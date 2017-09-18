@@ -8,16 +8,16 @@ namespace Woffler.ShareDestinations
 {
 	public class SlackDestination : IShareDestination
 	{
-		public void Share( ICollection<TrackManifest> trackManifests, Destination destination )
+		public void Share( ICollection<TrackManifest> trackManifests, UserShareDestination userDestination )
 		{
-			var formatter = new TrackFormatter( destination.Formatter, destination.User );
+			var formatter = new TrackFormatter((userDestination.Formatter ?? userDestination.ShareDestinationConfig.DefaultFormatter), userDestination.ShareUserName );
 
 			foreach ( var manifest in trackManifests )
 			{
 				using ( var httpClient = new HttpClient() )
 				{
 					var postContent = formatter.Format( manifest );
-					var response = httpClient.PostAsync( destination.ApiUrl, new StringContent( postContent, Encoding.UTF8, "application/json" ) ).Result;
+					var response = httpClient.PostAsync( userDestination.ShareDestinationConfig.ApiUrl, new StringContent( postContent, Encoding.UTF8, "application/json" ) ).Result;
 
 					if ( !response.IsSuccessStatusCode )
 					{

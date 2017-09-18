@@ -10,6 +10,6 @@ namespace Woffler.PollingSources
 {
 	public interface IPollingSource
 	{
-		ICollection<TrackManifest> Poll( Source source );
+		ICollection<TrackManifest> Poll( UserSource userSource );
 	}
 }

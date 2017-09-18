@@ -9,6 +9,6 @@ namespace Woffler.ShareDestinations
 {
 	public interface IShareDestination
 	{
-		void Share( ICollection<TrackManifest> trackManifests, Destination destination );
+		void Share( ICollection<TrackManifest> trackManifests, UserShareDestination userDestination );
 	}
 }

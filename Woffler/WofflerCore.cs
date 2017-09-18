@@ -18,10 +18,17 @@ namespace Woffler
 		public void StartMonitor()
 		{
 			EventLog.WriteEntry(Constants.EventLogSourceName, "Monitor start", EventLogEntryType.Information);
-			_databaseHandler = new DatabaseHandler();
-			var users = _databaseHandler.BuildUserList();
-			_pollingProcessor = new PollingProcessor { Users = users };
-			_pollingProcessor.Start();
+			try
+			{
+				_databaseHandler = new DatabaseHandler();
+				var users = _databaseHandler.QueryUsers();
+				_pollingProcessor = new PollingProcessor { Users = users };
+				_pollingProcessor.Start();
+			}
+			catch ( Exception e )
+			{
+				EventLog.WriteEntry(Constants.EventLogSourceName, e.ToString(), EventLogEntryType.Error);
+			}
 		}
 
 		public void StopMonitor()

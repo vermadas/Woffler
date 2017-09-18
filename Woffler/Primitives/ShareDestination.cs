@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace Woffler.Primitives
 {
-	public class Source
+	public class ShareDestination
 	{
 		public int Id { get; set; }
 		public string Name { get; set; }
