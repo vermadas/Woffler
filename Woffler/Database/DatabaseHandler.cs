@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Data.SQLite;
 using System.Diagnostics;
@@ -16,6 +17,7 @@ namespace Woffler.Database
 		public DatabaseHandler()
 		{
 			_connection = new SQLiteConnection("Data Source=" + _sqliteDatabaseFile + ";foreign keys=true;Version=" + SqliteDatabaseVersion + ";");
+			_dbLocks = new ConcurrentDictionary<string, object>();
 			Initialize();
 		}
 		public void Dispose()
@@ -60,7 +62,7 @@ namespace Woffler.Database
 			var users = new List<User>();
 
 			var sql = new StringBuilder();
-			sql.Append( "SELECT ID, Name, Email, Active FROM Users" );
+			sql.Append( $"SELECT ID, Name, Email, Active FROM {DbTables.Users}" );
 			if ( !string.IsNullOrEmpty( name ) || activeOnly )
 			{
 				sql.Append( " WHERE" );
@@ -117,7 +119,7 @@ namespace Woffler.Database
 	Poll_Interval,
 	Track_Limit,
 	Last_Poll
-FROM User_Has_Source
+FROM {DbTables.UserHasSource}
 WHERE User_ID = {UserId}";
 
 			if (activeOnly)
@@ -168,7 +170,7 @@ WHERE User_ID = {UserId}";
 	API_URL,
 	Default_Poll_Interval,
 	Default_Track_Limit
-FROM Source_Configs";
+FROM {DbTables.SourceConfigs}";
 
 			if (sourceConfigId != null)
 			{
@@ -208,7 +210,7 @@ FROM Source_Configs";
 		{
 			var sourcesSql = $@"SELECT ID,
 Name
-FROM Sources";
+FROM {DbTables.Sources}";
 
 			if ( sourceId != null )
 			{
@@ -247,7 +249,7 @@ FROM Sources";
 	Formatter,
 	Track_URL_Provider,
 	Image_URL_Provider
-FROM User_Has_Share_Destination
+FROM {DbTables.UserHasShareDestination}
 WHERE User_ID = {UserId}";
 
 			if (activeOnly)
@@ -296,7 +298,7 @@ WHERE User_ID = {UserId}";
 	API_URL,
 	Default_Formatter,
 	Default_Track_Limit
-FROM Share_Destination_Configs";
+FROM {DbTables.ShareDestinationConfigs}";
 
 			if (destinationConfigId != null)
 			{
@@ -336,7 +338,7 @@ FROM Share_Destination_Configs";
 		{
 			var destinationsSql = $@"SELECT ID,
 Name
-FROM Share_Destinations";
+FROM {DbTables.ShareDestinations}";
 
 			if (destinationId != null)
 			{
@@ -366,12 +368,11 @@ FROM Share_Destinations";
 
 		public void PersistUser( User user )
 		{
-			var persistSql = "";
 			if ( user.Id == 0 ) // INSERT
 			{
 				var insertLine = new StringBuilder();
 				var valuesLine = new StringBuilder();
-				insertLine.Append("INSERT INTO Users (Name, Active");
+				insertLine.Append($"INSERT INTO {DbTables.Users} (Name, Active");
 				valuesLine.Append($" VALUES ('{user.Name}', {Convert.ToInt32(user.Active)}");
 				if ( user.Email != null )
 				{
@@ -380,33 +381,43 @@ FROM Share_Destinations";
 				}
 				insertLine.Append(")");
 				valuesLine.Append(")");
-				persistSql = insertLine.ToString() + valuesLine.ToString();
+				var persistSql = insertLine.ToString() + valuesLine.ToString();
+				var newKey = ExecuteInsertWithTableLock(DbTables.Users, persistSql);
+				user.Id = newKey;
 			}
 			else // UPDATE
 			{
 				var updateLine = new StringBuilder();
-				updateLine.Append($"UPDATE Users SET Name = '{user.Name}'");
+				updateLine.Append($"UPDATE {DbTables.Users} SET Name = '{user.Name}'");
 				updateLine.Append($", Active = {Convert.ToInt32(user.Active)}");
 				var emailValue = user.Email != null ? $"'{user.Email}'" : "null";
 				updateLine.Append($", Email = {emailValue}");
 				updateLine.Append($" WHERE ID = {user.Id}");
-				persistSql = updateLine.ToString();
+				var persistSql = updateLine.ToString();
+				using (var command = new SQLiteCommand(persistSql, _connection))
+				{
+					command.ExecuteNonQuery();
+				}
 			}
 
-			using (var command = new SQLiteCommand(persistSql, _connection))
+			foreach ( var userSource in user.UserSources )
 			{
-				command.ExecuteNonQuery();
+				PersistUserSource(userSource);
 			}
+			foreach ( var shareDestination in user.UserDestinations )
+			{
+				PersistUserShareDestination(shareDestination);
+			}
+
 		}
 
 		public void PersistSourceConfig( SourceConfig sourceConfig )
 		{
-			var persistSql = "";
 			if ( sourceConfig.Id == 0 )
 			{
 				var insertLine = new StringBuilder();
 				var valuesLine = new StringBuilder();
-				insertLine.Append("INSERT INTO Source_Configs (Name, Source_ID, Default_Poll_interval, Default_Track_Limit");
+				insertLine.Append($"INSERT INTO {DbTables.SourceConfigs} (Name, Source_ID, Default_Poll_interval, Default_Track_Limit");
 				valuesLine.Append($" VALUES ('{sourceConfig.Name}', {sourceConfig.SourceId}");
 				valuesLine.Append($", {sourceConfig.DefaultPollInterval}, {sourceConfig.DefaultTrackLimit}");
 				if ( sourceConfig.ApiKey != null )
@@ -421,12 +432,14 @@ FROM Share_Destinations";
 				}
 				insertLine.Append(")");
 				valuesLine.Append(")");		
-				persistSql = insertLine.ToString() + valuesLine.ToString();
+				var persistSql = insertLine.ToString() + valuesLine.ToString();
+				var newKey = ExecuteInsertWithTableLock(DbTables.SourceConfigs, persistSql);
+				sourceConfig.Id = newKey;
 			}
 			else
 			{
 				var updateLine = new StringBuilder();
-				updateLine.Append($"UPDATE Source_Configs SET Name = '{sourceConfig.Name}'");
+				updateLine.Append($"UPDATE {DbTables.SourceConfigs} SET Name = '{sourceConfig.Name}'");
 				updateLine.Append($", Source_ID = {sourceConfig.SourceId}");
 				updateLine.Append($", Default_Poll_Interval = {sourceConfig.DefaultPollInterval}");
 				updateLine.Append($", Default_Track_Limit = {sourceConfig.DefaultTrackLimit}");
@@ -435,23 +448,21 @@ FROM Share_Destinations";
 				var apiKeyUrl = sourceConfig.ApiUrl != null ? $"'{sourceConfig.ApiUrl}'" : "null";
 				updateLine.Append($", {apiKeyUrl}");
 				updateLine.Append($" WHERE ID = {sourceConfig.Id}");
-				persistSql = updateLine.ToString();
-			}
-
-			using (var command = new SQLiteCommand(persistSql, _connection))
-			{
-				command.ExecuteNonQuery();
+				var persistSql = updateLine.ToString();
+				using (var command = new SQLiteCommand(persistSql, _connection))
+				{
+					command.ExecuteNonQuery();
+				}
 			}
 		}
 
 		public void PersistUserSource( UserSource userSource )
 		{
-			var persistSql = "";
 			if ( userSource.Id == 0 )
 			{
 				var insertLine = new StringBuilder();
 				var valuesLine = new StringBuilder();
-				insertLine.Append("INSERT INTO User_Has_Source (User_ID, Source_Config_ID, Active");
+				insertLine.Append($"INSERT INTO {DbTables.UserHasSource} (User_ID, Source_Config_ID, Active");
 				valuesLine.Append($" VALUES ({userSource.UserId}, {userSource.SourceConfigId}, {Convert.ToInt32(userSource.Active)}");
 				if (userSource.SourceUserName != null)
 				{
@@ -478,12 +489,14 @@ FROM Share_Destinations";
 					insertLine.Append(", Last_Poll");
 					insertLine.Append($", {userSource.LastPoll.ToUnixTimeSeconds()}");
 				}
-				persistSql = insertLine.ToString() + valuesLine.ToString();
+				var persistSql = insertLine.ToString() + valuesLine.ToString();
+				var newKey = ExecuteInsertWithTableLock(DbTables.UserHasSource, persistSql);
+				userSource.Id = newKey;
 			}
 			else
 			{
 				var updateLine = new StringBuilder();
-				updateLine.Append($"UPDATE User_Has_Source SET User_ID = {userSource.UserId}");
+				updateLine.Append($"UPDATE {DbTables.UserHasSource} SET User_ID = {userSource.UserId}");
 				updateLine.Append($", Source_Config_ID = {userSource.SourceConfigId}");
 				updateLine.Append($", Active = {Convert.ToInt32(userSource.Active)}");
 				var sourceUserNameValue = userSource.SourceUserName != null ? $"'{userSource.SourceUserName}'" : "null";
@@ -497,15 +510,121 @@ FROM Share_Destinations";
 				var lastPollValue = userSource.LastPoll != null ? $"'{userSource.LastPoll}'" : "null";
 				updateLine.Append($", Last_Poll = {lastPollValue}");
 				updateLine.Append($" WHERE ID = {userSource.Id}");
-				persistSql = updateLine.ToString();
-			}
-
-			using (var command = new SQLiteCommand(persistSql, _connection))
-			{
-				command.ExecuteNonQuery();
+				var persistSql = updateLine.ToString();
+				using (var command = new SQLiteCommand(persistSql, _connection))
+				{
+					command.ExecuteNonQuery();
+				}
 			}
 		}
 
+		public void PersistShareDestinationConfig( ShareDestinationConfig shareDestinationConfig )
+		{
+			if ( shareDestinationConfig.Id == 0)
+			{
+				var insertLine = new StringBuilder();
+				var valuesLine = new StringBuilder();
+				insertLine.Append($"INSERT INTO {DbTables.ShareDestinationConfigs} (Name, Share_Destination_ID");
+				insertLine.Append(", Default_Formatter, Default_Track_Limit");
+				valuesLine.Append($" VALUES ('{shareDestinationConfig.Name}', {shareDestinationConfig.ShareDestinationId}");
+				valuesLine.Append($", {shareDestinationConfig.DefaultFormatter}, {shareDestinationConfig.DefaultTrackLimit}");
+				if (shareDestinationConfig.ApiKey != null)
+				{
+					insertLine.Append(", API_Key");
+					valuesLine.Append($", '{shareDestinationConfig.ApiKey}'");
+				}
+				if (shareDestinationConfig.ApiUrl != null)
+				{
+					insertLine.Append(", API_URL");
+					valuesLine.Append($", '{shareDestinationConfig.ApiUrl}'");
+				}
+				insertLine.Append(")");
+				valuesLine.Append(")");
+				var persistSql = insertLine.ToString() + valuesLine.ToString();
+				var newKey = ExecuteInsertWithTableLock(DbTables.ShareDestinationConfigs, persistSql);
+				shareDestinationConfig.Id = newKey;
+			}
+			else
+			{
+				var updateLine = new StringBuilder();
+				updateLine.Append($"UPDATE {DbTables.ShareDestinationConfigs} SET Name = '{shareDestinationConfig.Name}'");
+				updateLine.Append($", Share_Destination_ID = {shareDestinationConfig.ShareDestinationId}");
+				updateLine.Append($", Default_Formatter = {shareDestinationConfig.DefaultFormatter}");
+				updateLine.Append($", Default_Track_Limit = {shareDestinationConfig.DefaultTrackLimit}");
+				var apiKeyValue = shareDestinationConfig.ApiKey != null ? $"'{shareDestinationConfig.ApiKey}'" : "null";
+				updateLine.Append($", {apiKeyValue}");
+				var apiKeyUrl = shareDestinationConfig.ApiUrl != null ? $"'{shareDestinationConfig.ApiUrl}'" : "null";
+				updateLine.Append($", {apiKeyUrl}");
+				updateLine.Append($" WHERE ID = {shareDestinationConfig.Id}");
+				var persistSql = updateLine.ToString();
+				using (var command = new SQLiteCommand(persistSql, _connection))
+				{
+					command.ExecuteNonQuery();
+				}
+			}
+		}
+
+		public void PersistUserShareDestination( UserShareDestination userShareDestination )
+		{
+			if ( userShareDestination.Id == 0 )
+			{
+				var insertLine = new StringBuilder();
+				var valuesLine = new StringBuilder();
+				insertLine.Append($"INSERT INTO {DbTables.UserHasShareDestination} (User_ID, Source_Destination_Config_ID, Active");
+				valuesLine.Append($" VALUES ({userShareDestination.UserId}, {userShareDestination.ShareDestinationConfigId}, {Convert.ToInt32(userShareDestination.Active)}");
+				if (userShareDestination.ShareUserName != null)
+				{
+					insertLine.Append(", Share_UserName");
+					valuesLine.Append($", '{userShareDestination.ShareUserName}'");
+				}
+				if (userShareDestination.TrackLimit != null)
+				{
+					insertLine.Append(", Track_Limit");
+					insertLine.Append($", {userShareDestination.TrackLimit}");
+				}
+				if (userShareDestination.Formatter != null)
+				{
+					insertLine.Append(", Formatter");
+					insertLine.Append($", {userShareDestination.Formatter}");
+				}
+				if (userShareDestination.TrackUrlProvider != null)
+				{
+					insertLine.Append(", Track_URL_Provider");
+					insertLine.Append($", {userShareDestination.TrackUrlProvider}");
+				}
+				if (userShareDestination.ImageUrlProvider != null)
+				{
+					insertLine.Append(", Image_URL_Provider");
+					insertLine.Append($", {userShareDestination.ImageUrlProvider}");
+				}
+				var persistSql = insertLine.ToString() + valuesLine.ToString();
+				var newKey = ExecuteInsertWithTableLock(DbTables.UserHasShareDestination, persistSql);
+				userShareDestination.Id = newKey;
+			}
+			else
+			{
+				var updateLine = new StringBuilder();
+				updateLine.Append($"UPDATE {DbTables.UserHasShareDestination} SET User_ID = {userShareDestination.UserId}");
+				updateLine.Append($", Share_Destination_Config_ID = {userShareDestination.ShareDestinationConfig}");
+				updateLine.Append($", Active = {Convert.ToInt32(userShareDestination.Active)}");
+				var shareUserNameValue = userShareDestination.ShareUserName != null ? $"'{userShareDestination.ShareUserName}'" : "null";
+				updateLine.Append($", Source_UserName = {shareUserNameValue}");
+				var formatterValue = userShareDestination.Formatter != null ? $"'{userShareDestination.Formatter}'" : "null";
+				updateLine.Append($", Formatter = {formatterValue}");
+				var trackLimitValue = userShareDestination.TrackLimit != null ? $"'{userShareDestination.TrackLimit}'" : "null";
+				updateLine.Append($", Track_Limit = {trackLimitValue}");
+				var trackUrlProviderValue = userShareDestination.TrackUrlProvider != null ? $"'{userShareDestination.TrackUrlProvider}'" : "null";
+				updateLine.Append($", Track_URL_Provider = {trackUrlProviderValue}");
+				var imageUrlProviderValue = userShareDestination.ImageUrlProvider != null ? $"'{userShareDestination.ImageUrlProvider}'" : "null";
+				updateLine.Append($", Image_URL_Provider = {imageUrlProviderValue}");
+				updateLine.Append($" WHERE ID = {userShareDestination.Id}");
+				var persistSql = updateLine.ToString();
+				using (var command = new SQLiteCommand(persistSql, _connection))
+				{
+					command.ExecuteNonQuery();
+				}
+			}
+		}
 		private T GetColumnValue<T>( SQLiteDataReader reader, string columnName, Func<object,T> converter = null )
 		{
 			if ( reader [ columnName ].GetType() == typeof( DBNull ) )
@@ -531,7 +650,28 @@ FROM Share_Destinations";
 
 			return DateTimeOffset.FromUnixTimeSeconds(secondsFromEpoch);
 		}
+		private int ExecuteInsertWithTableLock( string dbTable, string insertSql )
+		{
+			if ( !_dbLocks.ContainsKey( dbTable ) )
+			{
+				_dbLocks.Add(dbTable, new object());
+			}
+
+			int newKey = 0;
+			using (var command = new SQLiteCommand( insertSql, _connection) )
+			{
+				lock ( _dbLocks[ dbTable ] )
+				{
+					command.ExecuteNonQuery();
+					command.CommandText = $"select seq from sqlite_sequence where name = '{dbTable}'";
+					newKey = (int) command.ExecuteScalar();
+				}
+			}
+
+			return newKey;
+		}
 		private readonly SQLiteConnection _connection;
+		private readonly IDictionary<string, object> _dbLocks;
 
 		private readonly string _sqliteDatabaseFile = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData) + @"\WofflerDatabase.sqlite";
 		private const string SqliteDatabaseVersion = "3";
